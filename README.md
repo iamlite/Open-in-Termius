@@ -1,6 +1,6 @@
 # Open-in-Termius
 
-![Open-in-Termius Logo](logo.png)
+![Termius Logo](https://assets-global.website-files.com/5c7036349b5477bf13f828cf/6369e92d535e22776a8a681c_Brand%20Logo.svg)
 
 Open-in-Termius is a simple macOS application created with Automator. It allows you to open the current Finder directory in a Termius terminal with just one click.
 
