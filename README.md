@@ -24,6 +24,50 @@ Open-in-Termius is a simple macOS application created with Automator. It allows 
 2. Click the Open-in-Termius icon in the Finder toolbar.
 3. This will open Termius and navigate to the current Finder directory in a new local terminal.
 
+The command is pasted as a single string, so Chinese input methods do not
+convert the command or path. Paths are shell-quoted, and `ls` only runs after
+`cd` succeeds. The previous clipboard items and formats are restored after
+pasting, unless you copied something else while the workflow was running.
+
+Keep Termius in the foreground until the command finishes. The workflow checks
+for a local-terminal window for up to 15 seconds and allows a short settling
+period before pasting. This is a UI readiness check, not a shell prompt check;
+custom startup scripts or unusually slow systems may still need another try.
+The workflow expects the default `Command-L` shortcut and a window title
+containing `Local Terminal` (verified with Termius 9.43.1).
+
+Open a Finder folder window first. Finder locations that cannot be converted
+to a filesystem folder, and folder names containing line breaks, are not
+supported. macOS must allow the app to control Finder and System Events and
+send keystrokes through Accessibility. If it reports a permission error,
+check the app's existing permissions in System Settings → Privacy & Security.
+
+## Development and verification
+
+The AppleScript source is embedded in
+`Open-in-Termius.app/Contents/document.wflow`. No Maven or Java build is used.
+On macOS, run the focused checks with Python 3 and the built-in AppleScript
+compiler and zsh:
+
+```bash
+python3 -m unittest discover -s tests -v
+plutil -lint Open-in-Termius.app/Contents/document.wflow
+```
+
+The checks compile the script and verify literal path handling, failed `cd`,
+and clipboard restoration using private pasteboards. They do not open Finder
+or Termius. Also check the installed app from the Finder toolbar with both
+ABC and a Chinese input method, including a folder containing spaces and
+Chinese characters. Verify that the new local terminal enters that folder
+and that the previous clipboard content is still available.
+
+Back up the installed app before replacing its workflow. Editing a signed app
+invalidates its signature; a local development copy can be signed again with
+`codesign --force --deep --sign - /Applications/Open-in-Termius.app`, then
+checked with `codesign --verify --deep --strict /Applications/Open-in-Termius.app`.
+This is a local ad-hoc signature, not notarization. macOS may ask you to
+re-authorize the updated app.
+
 ## Contributing
 
 Contributions are welcome! If you have any ideas, suggestions, or bug reports, please open an issue or submit a pull request.

@@ -51,7 +51,113 @@
 				<key>ActionParameters</key>
 				<dict>
 					<key>source</key>
-					<string>on run {input, parameters}	tell application "Finder"		set currentPath to (the POSIX path of (the target of the front window as alias))	end tell	tell application "Termius"		activate		delay 1	end tell	tell application "System Events"		tell process "Termius"			keystroke "l" using command down			delay 1			keystroke "cd \"" &amp; currentPath &amp; "\""			delay 1			keystroke return			delay 1			keystroke "ls"			delay 1			keystroke return		end tell	end tell	return inputend run</string>
+					<string>use framework "AppKit"
+use scripting additions
+
+on run {input, parameters}
+    set pasteboard to current application's NSPasteboard's generalPasteboard()
+    set savedItems to missing value
+    set ownedChangeCount to missing value
+    try
+        tell application "Finder"
+            if (count of Finder windows) is 0 then error "Open a Finder folder window before running Open-in-Termius."
+            set currentPath to POSIX path of (target of front Finder window as alias)
+        end tell
+        set commandText to my shellCommand(currentPath)
+        tell application "Termius" to activate
+        my waitForTermius(false)
+        tell application "System Events" to tell process "Termius" to key code 37 using command down
+        my waitForTermius(true)
+        -- The window title can update before the terminal input is ready.
+        delay 1
+        my requireLocalTerminal()
+
+        set savedItems to my copyClipboard(pasteboard)
+        pasteboard's clearContents()
+        set ownedChangeCount to pasteboard's changeCount() as integer
+        if not (pasteboard's setString:commandText forType:(current application's NSPasteboardTypeString)) then error "Could not put the command on the clipboard."
+        set ownedChangeCount to pasteboard's changeCount() as integer
+        my requireLocalTerminal()
+        my requireClipboard(pasteboard, ownedChangeCount)
+        tell application "System Events" to tell process "Termius" to key code 9 using command down
+        -- Allow Termius to consume the clipboard before Return and restoration.
+        delay 1
+        my requireLocalTerminal()
+        my requireClipboard(pasteboard, ownedChangeCount)
+        tell application "System Events" to tell process "Termius" to key code 36
+        delay 0.5
+        my restoreClipboard(pasteboard, savedItems, ownedChangeCount)
+    on error errorMessage number errorNumber
+        if ownedChangeCount is not missing value then
+            try
+                my restoreClipboard(pasteboard, savedItems, ownedChangeCount)
+            on error restoreMessage
+                set errorMessage to errorMessage &amp; " Clipboard restoration also failed: " &amp; restoreMessage
+            end try
+        end if
+        error "Open-in-Termius: " &amp; errorMessage number errorNumber
+    end try
+    return input
+end run
+
+on shellCommand(folderPath)
+    if folderPath contains linefeed or folderPath contains return then error "Folder names containing line breaks are not supported."
+    return "cd -- " &amp; quoted form of folderPath &amp; " &amp;&amp; ls"
+end shellCommand
+
+on waitForTermius(needsLocalTerminal)
+    repeat 60 times
+        tell application "System Events"
+            if exists process "Termius" then
+                tell process "Termius"
+                    if frontmost and (count of windows) &gt; 0 then
+                        if not needsLocalTerminal then return
+                        if name of front window contains "Local Terminal" then return
+                    end if
+                end tell
+            end if
+        end tell
+        delay 0.25
+    end repeat
+    error "Termius did not become ready within 15 seconds. Check that its local terminal and Automation/Accessibility permissions are available."
+end waitForTermius
+
+on requireLocalTerminal()
+    tell application "System Events" to tell process "Termius"
+        if not frontmost then error "Termius lost focus. Run Open-in-Termius again without switching apps."
+        if (count of windows) is 0 then error "The Termius window is no longer available."
+        if name of front window does not contain "Local Terminal" then error "The active Termius window is not a local terminal."
+    end tell
+end requireLocalTerminal
+
+on copyClipboard(pasteboard)
+    set savedItems to current application's NSMutableArray's array()
+    repeat with oldItem in (pasteboard's pasteboardItems() as list)
+        set newItem to current application's NSPasteboardItem's alloc()'s init()
+        repeat with itemType in (oldItem's types() as list)
+            set itemData to oldItem's dataForType:itemType
+            if itemData is missing value then error "Could not preserve a clipboard format. The clipboard was left unchanged."
+            if not (newItem's setData:itemData forType:itemType) then error "Could not preserve the clipboard."
+        end repeat
+        savedItems's addObject:newItem
+    end repeat
+    return savedItems
+end copyClipboard
+
+on requireClipboard(pasteboard, ownedChangeCount)
+    if (pasteboard's changeCount() as integer) is not ownedChangeCount then error "The clipboard changed while preparing the command. Run Open-in-Termius again."
+end requireClipboard
+
+on restoreClipboard(pasteboard, savedItems, ownedChangeCount)
+    -- Do not overwrite anything the user copied while the workflow was running.
+    if (pasteboard's changeCount() as integer) is not ownedChangeCount then return false
+    pasteboard's clearContents()
+    if (savedItems's |count|() as integer) &gt; 0 then
+        if not (pasteboard's writeObjects:savedItems) then error "Could not restore the previous clipboard contents."
+    end if
+    return true
+end restoreClipboard
+</string>
 				</dict>
 				<key>BundleIdentifier</key>
 				<string>com.apple.Automator.RunScript</string>
