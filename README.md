@@ -68,6 +68,24 @@ checked with `codesign --verify --deep --strict /Applications/Open-in-Termius.ap
 This is a local ad-hoc signature, not notarization. macOS may ask you to
 re-authorize the updated app.
 
+### Local acceptance (2026-10-14)
+
+The installed app was verified with Termius 9.43.1 after re-adding it to macOS
+control permissions. Finder toolbar clicks opened new local terminals in the
+expected directory for all of these cases:
+
+| Input mode | Finder folder | Result |
+| --- | --- | --- |
+| Existing input source | Project directory | Passed |
+| ABC | `中文 空格 '引号' $符号` | Passed |
+| Rime Chinese mode | `中文 空格 '引号' $符号` | Passed |
+
+Rime Chinese composition was confirmed with the `ni` → `你` candidate before
+the click. The new zsh processes' working directories matched the Finder
+folder, and clipboard text was unchanged after both input-mode checks.
+All seven automated checks also passed. Manual acceptance covered an
+already-running Termius instance; a cold launch remains untested.
+
 ## Contributing
 
 Contributions are welcome! If you have any ideas, suggestions, or bug reports, please open an issue or submit a pull request.
