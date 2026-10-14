@@ -52,7 +52,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.rstrip("\n")
 
-    def test_enters_literal_paths_and_lists_their_contents(self):
+    def test_enters_literal_paths_and_prints_the_current_directory(self):
         names = [
             "plain", "中文 空格", "single' and \"double\"",
             "$(touch INJECTED)`touch BACKTICK` & ; [x] !",
@@ -66,20 +66,19 @@ class WorkflowTests(unittest.TestCase):
                     target.mkdir()
                     (target / "expected-entry").touch()
                     result = subprocess.run(
-                        ["zsh", "-f", "-c", self.command(target) + " && pwd -P"],
+                        ["zsh", "-f", "-c", self.command(target)],
                         cwd=base, capture_output=True, text=True,
                     )
                     self.assertEqual(
                         (result.returncode, result.stdout),
-                        (0, f"expected-entry\n{target}\n"), result.stderr,
+                        (0, f"{target}\n"), result.stderr,
                     )
             self.assertFalse((base / "INJECTED").exists())
             self.assertFalse((base / "BACKTICK").exists())
 
-    def test_failed_cd_does_not_list_the_previous_directory(self):
+    def test_failed_cd_does_not_print_the_previous_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            (base / "SHOULD_NOT_LIST").touch()
             result = subprocess.run(
                 ["zsh", "-f", "-c", self.command(base / "missing")],
                 cwd=base, capture_output=True, text=True,

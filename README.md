@@ -25,9 +25,10 @@ Open-in-Termius is a simple macOS application created with Automator. It allows 
 3. This will open Termius and navigate to the current Finder directory in a new local terminal.
 
 The command is pasted as a single string, so Chinese input methods do not
-convert the command or path. Paths are shell-quoted, and `ls` only runs after
-`cd` succeeds. The previous clipboard items and formats are restored after
-pasting, unless you copied something else while the workflow was running.
+convert the command or path. Paths are shell-quoted, and `pwd` prints the
+current directory only after `cd` succeeds. The previous clipboard items and
+formats are restored after pasting, unless you copied something else while
+the workflow was running.
 
 Keep Termius in the foreground until the command finishes. The workflow checks
 for a local-terminal window for up to 15 seconds and allows a short settling
@@ -83,8 +84,13 @@ expected directory for all of these cases:
 Rime Chinese composition was confirmed with the `ni` → `你` candidate before
 the click. The new zsh processes' working directories matched the Finder
 folder, and clipboard text was unchanged after both input-mode checks.
-All seven automated checks also passed. Manual acceptance covered an
-already-running Termius instance; a cold launch remains untested.
+All seven automated checks also passed. Agent-run manual acceptance covered
+an already-running Termius instance; the user subsequently confirmed that
+cold launch also worked correctly with that build.
+
+The follow-up change replaces `&& ls` with `&& pwd` to display the current
+directory. Its automated checks verify the printed path and confirm that a
+failed `cd` does not print the previous directory.
 
 ## Contributing
 

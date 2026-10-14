@@ -102,7 +102,7 @@ end run
 
 on shellCommand(folderPath)
     if folderPath contains linefeed or folderPath contains return then error "Folder names containing line breaks are not supported."
-    return "cd -- " &amp; quoted form of folderPath &amp; " &amp;&amp; ls"
+    return "cd -- " &amp; quoted form of folderPath &amp; " &amp;&amp; pwd"
 end shellCommand
 
 on waitForTermius(needsLocalTerminal)
