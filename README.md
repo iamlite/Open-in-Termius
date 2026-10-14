@@ -30,12 +30,20 @@ current directory only after `cd` succeeds. The previous clipboard items and
 formats are restored after pasting, unless you copied something else while
 the workflow was running.
 
-Keep Termius in the foreground until the command finishes. The workflow checks
-for a local-terminal window for up to 15 seconds and allows a short settling
-period before pasting. This is a UI readiness check, not a shell prompt check;
-custom startup scripts or unusually slow systems may still need another try.
-The workflow expects the default `Command-L` shortcut and a window title
-containing `Local Terminal` (verified with Termius 9.43.1).
+Keep Termius in the foreground until the command finishes. Startup first waits
+for a window and an enabled `File → New Local Terminal` menu item, then requests
+foreground focus and uses that native menu item. It waits for the local-terminal
+window separately and reacquires focus before preparing the command. The initial
+window/menu wait allows 120 polls, local-terminal creation 60 polls, and each
+focus wait 20 polls, with 0.25 seconds between polls. Timeout errors identify the
+stage and last observed window, menu, focus, and title state.
+
+A short settling period follows terminal creation. This is a UI readiness check,
+not a shell prompt check; custom startup scripts or unusually slow systems may
+still need another try. The workflow expects the English menu names above and a
+window title containing `Local Terminal` (inspected with Termius 9.43.1).
+After command preparation starts, losing focus aborts the operation instead of
+redirecting a paste or Return to another app.
 
 Open a Finder folder window first. Finder locations that cannot be converted
 to a filesystem folder, and folder names containing line breaks, are not
@@ -55,9 +63,11 @@ python3 -m unittest discover -s tests -v
 plutil -lint Open-in-Termius.app/Contents/document.wflow
 ```
 
-The checks compile the script and verify literal path handling, failed `cd`,
-and clipboard restoration using private pasteboards. They do not open Finder
-or Termius. Also check the installed app from the Finder toolbar with both
+The checks compile the script and verify delayed startup states, focus guards,
+stage-specific timeouts, literal path handling, failed `cd`, and clipboard
+restoration using private pasteboards. Startup checks substitute UI snapshots
+and actions; they do not open Finder or Termius. Also check the installed app
+from the Finder toolbar with both
 ABC and a Chinese input method, including a folder containing spaces and
 Chinese characters. Verify that the new local terminal enters that folder
 and that the previous clipboard content is still available.
@@ -91,6 +101,28 @@ cold launch also worked correctly with that build.
 The follow-up change replaces `&& ls` with `&& pwd` to display the current
 directory. Its automated checks verify the printed path and confirm that a
 failed `cd` does not print the previous directory.
+
+Subsequent agent-run cold-start checks of that follow-up build reproduced two
+15-second readiness timeouts without creating a local terminal. The startup
+repair separates window/menu readiness from focus and uses the native menu
+instead of an early keyboard shortcut.
+
+After re-signing and renewing the installed app's macOS control permission,
+the startup repair passed these Finder toolbar checks:
+
+| Termius state | Finder folder | Result |
+| --- | --- | --- |
+| Fully stopped, first launch | Existing folder containing Chinese and spaces | Passed |
+| Fully stopped, second launch | Same Chinese/spaces folder | Passed |
+| Already running | Project directory | Passed |
+
+Both cold checks confirmed zero Termius processes before the click. Each run
+displayed `cd -- '…' && pwd` and the expected path, and the new zsh process's
+working directory matched it. Clipboard text was unchanged across the checks;
+the selected input source was Rime. All 12 automated checks, AppleScript
+compilation, workflow plist validation, and installed signature verification
+passed. The real UI checks cover Termius 9.43.1 on this Mac, not arbitrary shell
+startup delays or other Termius versions.
 
 ## Contributing
 

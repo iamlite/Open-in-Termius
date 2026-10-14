@@ -64,10 +64,7 @@ on run {input, parameters}
             set currentPath to POSIX path of (target of front Finder window as alias)
         end tell
         set commandText to my shellCommand(currentPath)
-        tell application "Termius" to activate
-        my waitForTermius(false)
-        tell application "System Events" to tell process "Termius" to key code 37 using command down
-        my waitForTermius(true)
+        my prepareLocalTerminal()
         -- The window title can update before the terminal input is ready.
         delay 1
         my requireLocalTerminal()
@@ -105,29 +102,75 @@ on shellCommand(folderPath)
     return "cd -- " &amp; quoted form of folderPath &amp; " &amp;&amp; pwd"
 end shellCommand
 
-on waitForTermius(needsLocalTerminal)
-    repeat 60 times
-        tell application "System Events"
-            if exists process "Termius" then
-                tell process "Termius"
-                    if frontmost and (count of windows) &gt; 0 then
-                        if not needsLocalTerminal then return
-                        if name of front window contains "Local Terminal" then return
-                    end if
-                end tell
-            end if
-        end tell
-        delay 0.25
+on prepareLocalTerminal()
+    my launchTermius()
+    -- Cold launch may create a window before its native menu is available.
+    -- Readiness must not depend on the initial activation retaining focus.
+    my waitForTermius("window/menu readiness", 120)
+    my requestTermiusFocus()
+    my waitForTermius("foreground focus", 20)
+    my openLocalTerminal()
+    my waitForTermius("local terminal creation", 60)
+    my requestTermiusFocus()
+    my waitForTermius("foreground focus", 20)
+end prepareLocalTerminal
+
+on launchTermius()
+    tell application "Termius" to launch
+end launchTermius
+
+on requestTermiusFocus()
+    tell application "Termius" to activate
+    tell application "System Events" to tell process "Termius" to set frontmost to true
+end requestTermiusFocus
+
+on openLocalTerminal()
+    tell application "System Events" to tell process "Termius"
+        click menu item "New Local Terminal" of menu 1 of menu bar item "File" of menu bar 1
+    end tell
+end openLocalTerminal
+
+on readTermiusState()
+    set currentState to {windowAvailable:false, menuAvailable:false, isForeground:false, windowTitle:"(none)"}
+    tell application "System Events"
+        if exists process "Termius" then
+            tell process "Termius"
+                set isForeground of currentState to frontmost
+                if (count of windows) &gt; 0 then
+                    set windowAvailable of currentState to true
+                    set windowTitle of currentState to name of front window
+                end if
+                if exists menu item "New Local Terminal" of menu 1 of menu bar item "File" of menu bar 1 then
+                    set menuAvailable of currentState to enabled of menu item "New Local Terminal" of menu 1 of menu bar item "File" of menu bar 1
+                end if
+            end tell
+        end if
+    end tell
+    return currentState
+end readTermiusState
+
+on pauseForTermius()
+    delay 0.25
+end pauseForTermius
+
+on waitForTermius(stageName, maxChecks)
+    repeat maxChecks times
+        set currentState to my readTermiusState()
+        if windowAvailable of currentState then
+            if stageName is "window/menu readiness" and menuAvailable of currentState then return
+            if stageName is "foreground focus" and isForeground of currentState then return
+            if stageName is "local terminal creation" and windowTitle of currentState contains "Local Terminal" then return
+        end if
+        my pauseForTermius()
     end repeat
-    error "Termius did not become ready within 15 seconds. Check that its local terminal and Automation/Accessibility permissions are available."
+    error "Timed out waiting for Termius " &amp; stageName &amp; " (window=" &amp; (windowAvailable of currentState as text) &amp; ", menu=" &amp; (menuAvailable of currentState as text) &amp; ", foreground=" &amp; (isForeground of currentState as text) &amp; ", title=" &amp; windowTitle of currentState &amp; ")."
 end waitForTermius
 
 on requireLocalTerminal()
-    tell application "System Events" to tell process "Termius"
-        if not frontmost then error "Termius lost focus. Run Open-in-Termius again without switching apps."
-        if (count of windows) is 0 then error "The Termius window is no longer available."
-        if name of front window does not contain "Local Terminal" then error "The active Termius window is not a local terminal."
-    end tell
+    set currentState to my readTermiusState()
+    if not isForeground of currentState then error "Termius lost focus. Run Open-in-Termius again without switching apps."
+    if not windowAvailable of currentState then error "The Termius window is no longer available."
+    if windowTitle of currentState does not contain "Local Terminal" then error "The active Termius window is not a local terminal."
 end requireLocalTerminal
 
 on copyClipboard(pasteboard)

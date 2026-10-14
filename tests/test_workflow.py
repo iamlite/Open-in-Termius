@@ -28,7 +28,7 @@ class WorkflowTests(unittest.TestCase):
             check=True, capture_output=True, text=True,
         )
 
-    def applescript(self, body, *args):
+    def applescript(self, body, *args, overrides=None):
         script = Path(self.work.name) / "check.applescript"
         # Run the actual handlers in the same script context as Automator.
         # Loading an AppKit script into a second script fails with -1700 on
@@ -39,11 +39,107 @@ class WorkflowTests(unittest.TestCase):
             self.source, count=1, flags=re.S | re.M,
         )
         self.assertEqual(count, 1)
+        for name, replacement in (overrides or {}).items():
+            source, count = re.subn(
+                rf"^on {name}\(.*?^end {name}$", lambda _: replacement,
+                source, count=1, flags=re.S | re.M,
+            )
+            self.assertEqual(count, 1, f"Missing handler: {name}")
         script.write_text(source)
         return subprocess.run(
             ["osascript", str(script), *args],
             capture_output=True, text=True, timeout=20,
         )
+
+    def startup(self, states, body):
+        # Exercise production sequencing with delayed UI snapshots, without
+        # opening apps or sending keys. Exhausted snapshots repeat the last one.
+        overrides = {
+            "launchTermius": 'on launchTermius()\nset end of my callHistory to "launch"\nend launchTermius',
+            "requestTermiusFocus": 'on requestTermiusFocus()\nset end of my callHistory to "focus"\nend requestTermiusFocus',
+            "openLocalTerminal": 'on openLocalTerminal()\nset end of my callHistory to "open"\nend openLocalTerminal',
+            "pauseForTermius": 'on pauseForTermius()\nend pauseForTermius',
+            "readTermiusState": '''on readTermiusState()
+set nextIndex to (my snapshotIndex) + 1
+if nextIndex > (count of my snapshots) then set nextIndex to count of my snapshots
+set my snapshotIndex to nextIndex
+set end of my callHistory to "read" & nextIndex
+return item nextIndex of my snapshots
+end readTermiusState''',
+        }
+        # Script properties keep stub state visible inside the actual handlers.
+        overrides["readTermiusState"] += '''
+property snapshots : {}
+property snapshotIndex : 0
+property callHistory : {}'''
+        return self.applescript(
+            "set my snapshots to {" + ", ".join(states) + "}\n"
+            "set my snapshotIndex to 0\nset my callHistory to {}\n" + body,
+            overrides=overrides,
+        )
+
+    @staticmethod
+    def state(window=False, menu=False, focused=False, title="Termius"):
+        flag = lambda value: str(value).lower()
+        return (
+            "{windowAvailable:" + flag(window) + ", menuAvailable:" + flag(menu)
+            + ", isForeground:" + flag(focused) + ', windowTitle:"' + title + '"}'
+        )
+
+    def test_cold_start_waits_for_menu_and_focus_before_opening_terminal(self):
+        result = self.startup([
+            self.state(),
+            self.state(window=True),
+            self.state(window=True, menu=True),
+            self.state(window=True, menu=True),
+            self.state(window=True, menu=True, focused=True),
+            self.state(window=True, menu=True, focused=True),
+            self.state(window=True, menu=True, title="Termius - Local Terminal"),
+            self.state(window=True, menu=True, focused=True, title="Termius - Local Terminal"),
+        ], 'my prepareLocalTerminal()\nreturn my callHistory')
+        self.assertEqual(
+            (result.returncode, result.stdout.strip()),
+            (0, "launch, read1, read2, read3, focus, read4, read5, open, read6, read7, focus, read8"),
+            result.stderr,
+        )
+
+    def test_startup_timeout_identifies_unavailable_window_or_menu(self):
+        result = self.startup([self.state(window=True)], 'my prepareLocalTerminal()')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("window/menu readiness", result.stderr)
+        self.assertIn("menu=false", result.stderr)
+
+    def test_startup_focus_timeout_does_not_open_terminal(self):
+        result = self.startup([self.state(window=True, menu=True)], '''
+try
+    my prepareLocalTerminal()
+    error "Expected a focus error"
+on error messageText
+    if messageText does not contain "foreground focus" then error messageText
+    if my callHistory contains "open" then error "Opened terminal before focus"
+    return "PASS"
+end try''')
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "PASS"), result.stderr)
+
+    def test_local_terminal_timeout_names_the_current_window(self):
+        result = self.startup(
+            [self.state(window=True, menu=True, focused=True)],
+            'my prepareLocalTerminal()',
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("local terminal creation", result.stderr)
+        self.assertIn('title=Termius', result.stderr)
+
+    def test_command_guard_rejects_focus_loss_and_nonlocal_windows(self):
+        cases = [
+            (self.state(window=True, title="Termius - Local Terminal"), "lost focus"),
+            (self.state(window=True, focused=True), "not a local terminal"),
+        ]
+        for state, message in cases:
+            with self.subTest(message=message):
+                result = self.startup([state], 'my requireLocalTerminal()')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
 
     def command(self, path):
         result = self.applescript(
