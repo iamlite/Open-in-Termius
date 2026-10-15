@@ -104,6 +104,7 @@ end shellCommand
 
 on prepareLocalTerminal()
     my launchTermius()
+    my restoreTermiusWindow()
     -- Cold launch may create a window before its native menu is available.
     -- Readiness must not depend on the initial activation retaining focus.
     my waitForTermius("window/menu readiness", 120)
@@ -118,6 +119,14 @@ end prepareLocalTerminal
 on launchTermius()
     tell application "Termius" to launch
 end launchTermius
+
+on restoreTermiusWindow()
+    -- launch alone does nothing when the process remains after its last window closes.
+    tell application "Termius"
+        reopen
+        activate
+    end tell
+end restoreTermiusWindow
 
 on requestTermiusFocus()
     tell application "Termius" to activate

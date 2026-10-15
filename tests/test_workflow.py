@@ -51,7 +51,7 @@ class WorkflowTests(unittest.TestCase):
             capture_output=True, text=True, timeout=20,
         )
 
-    def startup(self, states, body):
+    def startup(self, states, body, needs_reopen=False):
         # Exercise production sequencing with delayed UI snapshots, without
         # opening apps or sending keys. Exhausted snapshots repeat the last one.
         overrides = {
@@ -67,14 +67,26 @@ set end of my callHistory to "read" & nextIndex
 return item nextIndex of my snapshots
 end readTermiusState''',
         }
+        # Before recovery, the menu exists but the closed window cannot appear
+        # on its own. Keep that state until production requests a reopen.
+        if needs_reopen:
+            overrides["readTermiusState"] = overrides["readTermiusState"].replace(
+                "set nextIndex", 'if not my didReopen then return {windowAvailable:false, '
+                'menuAvailable:true, isForeground:false, windowTitle:"(none)"}\nset nextIndex', 1,
+            )
+        overrides["restoreTermiusWindow"] = '''on restoreTermiusWindow()
+set end of my callHistory to "reopen"
+set my didReopen to true
+end restoreTermiusWindow'''
         # Script properties keep stub state visible inside the actual handlers.
         overrides["readTermiusState"] += '''
 property snapshots : {}
 property snapshotIndex : 0
-property callHistory : {}'''
+property callHistory : {}
+property didReopen : false'''
         return self.applescript(
             "set my snapshots to {" + ", ".join(states) + "}\n"
-            "set my snapshotIndex to 0\nset my callHistory to {}\n" + body,
+            "set my snapshotIndex to 0\nset my callHistory to {}\nset my didReopen to false\n" + body,
             overrides=overrides,
         )
 
@@ -99,7 +111,7 @@ property callHistory : {}'''
         ], 'my prepareLocalTerminal()\nreturn my callHistory')
         self.assertEqual(
             (result.returncode, result.stdout.strip()),
-            (0, "launch, read1, read2, read3, focus, read4, read5, open, read6, read7, focus, read8"),
+            (0, "launch, reopen, read1, read2, read3, focus, read4, read5, open, read6, read7, focus, read8"),
             result.stderr,
         )
 
@@ -108,6 +120,30 @@ property callHistory : {}'''
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("window/menu readiness", result.stderr)
         self.assertIn("menu=false", result.stderr)
+
+    def test_running_app_without_windows_recovers_and_opens_local_terminal(self):
+        result = self.startup([
+            self.state(menu=True),
+            self.state(window=True, menu=True),
+            self.state(window=True, menu=True, focused=True),
+            self.state(window=True, menu=True, focused=True, title="Termius - Local Terminal"),
+        ], '''my prepareLocalTerminal()
+my requireLocalTerminal()
+return my callHistory contains "open"''', needs_reopen=True)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "true"), result.stderr)
+
+    def test_reopen_without_a_window_times_out_before_opening_terminal(self):
+        result = self.startup([self.state(menu=True)], '''
+try
+    my prepareLocalTerminal()
+    error "Expected a window recovery error"
+on error messageText
+    if messageText does not contain "window/menu readiness" then error messageText
+    if messageText does not contain "window=false" then error messageText
+    if my callHistory contains "open" then error "Opened terminal without a window"
+    return "PASS"
+end try''', needs_reopen=True)
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "PASS"), result.stderr)
 
     def test_startup_focus_timeout_does_not_open_terminal(self):
         result = self.startup([self.state(window=True, menu=True)], '''

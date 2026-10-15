@@ -30,7 +30,9 @@ current directory only after `cd` succeeds. The previous clipboard items and
 formats are restored after pasting, unless you copied something else while
 the workflow was running.
 
-Keep Termius in the foreground until the command finishes. Startup first waits
+Keep Termius in the foreground until the command finishes. Startup sends
+`reopen` and `activate` so Termius can restore its main window even when its
+process is still running after the last window was closed. It then waits
 for a window and an enabled `File → New Local Terminal` menu item, then requests
 foreground focus and uses that native menu item. It waits for the local-terminal
 window separately and reacquires focus before preparing the command. The initial
@@ -63,9 +65,9 @@ python3 -m unittest discover -s tests -v
 plutil -lint Open-in-Termius.app/Contents/document.wflow
 ```
 
-The checks compile the script and verify delayed startup states, focus guards,
-stage-specific timeouts, literal path handling, failed `cd`, and clipboard
-restoration using private pasteboards. Startup checks substitute UI snapshots
+The checks compile the script and verify delayed startup states, closed-window
+recovery, focus guards, stage-specific timeouts, literal path handling, failed
+`cd`, and clipboard restoration using private pasteboards. Startup checks substitute UI snapshots
 and actions; they do not open Finder or Termius. Also check the installed app
 from the Finder toolbar with both
 ABC and a Chinese input method, including a folder containing spaces and
@@ -152,6 +154,21 @@ This opt-in check signs temporary copies without launching Finder or Termius.
 It verifies code identity compatibility; actual permission retention must also
 be checked by updating an already-authorized installed app and using its Finder
 toolbar button again. See Apple's [code identity explanation](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
+### Closed-window recovery acceptance (2026-10-16)
+
+A running Termius instance with no open windows previously timed out before
+the workflow requested activation. Startup now sends `reopen` and `activate`
+before waiting for window/menu readiness, while retaining the later focus and
+local-terminal checks.
+
+The new regression first reproduced that timeout; all 21 automated checks then
+passed with real signing enabled. The generated app, extracted ZIP, and installed
+app passed signature verification using the existing signing identity. On this
+Mac, the user confirmed that closing the Termius window without quitting, then
+clicking the Finder toolbar button, restored the window and opened a local
+terminal in the current directory. Live acceptance for this patch covers that
+closed-window scenario; separate cold and warm launches were not repeated.
 
 ### Local signing acceptance (2026-10-15)
 
