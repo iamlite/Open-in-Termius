@@ -72,12 +72,99 @@ ABC and a Chinese input method, including a folder containing spaces and
 Chinese characters. Verify that the new local terminal enters that folder
 and that the previous clipboard content is still available.
 
-Back up the installed app before replacing its workflow. Editing a signed app
-invalidates its signature; a local development copy can be signed again with
-`codesign --force --deep --sign - /Applications/Open-in-Termius.app`, then
-checked with `codesign --verify --deep --strict /Applications/Open-in-Termius.app`.
-This is a local ad-hoc signature, not notarization. macOS may ask you to
-re-authorize the updated app.
+### Local builds with a fixed signing identity
+
+For this Mac, use a persistent self-signed certificate instead of ad-hoc signing.
+Run the one-time setup in a terminal from this repository:
+
+```bash
+python3 scripts/package_app.py setup
+```
+
+Setup creates `Open-in-Termius Local Code Signing` in your default user keychain
+(normally the login keychain), valid for ten years, and sets **user-level,
+code-signing-only** trust. macOS may ask you to authenticate. The private key is
+imported with access restricted to `/usr/bin/codesign`; temporary private-key
+files are removed after import. Repeating setup reuses the original certificate.
+The public certificate and its pinned fingerprint are stored outside Git in
+`~/Library/Application Support/Open-in-Termius/`.
+
+Build, verify, back up the previous installation, and update the app:
+
+```bash
+python3 scripts/package_app.py build --install
+```
+
+Omit `--install` to produce only the app and ZIP under `dist/<timestamp>/`.
+Each build runs the automated checks, validates the plists, copies the source
+bundle, signs the workflow and then the app, and verifies the result. ZIPs use
+`ditto` to preserve the workflow's signature attributes and are verified again
+after extraction. Use Finder/Archive Utility or `ditto` to extract them; a ZIP
+tool that drops macOS extended attributes can invalidate the workflow signature.
+
+The signature requirement pins both the existing Bundle ID
+`com.apple.automator.TermiusLocal` and the certificate fingerprint, rather than a
+particular build's code hash. A missing identity, changed Bundle ID, failed
+check, or invalid archive stops the build. The script never falls back to ad-hoc
+signing or silently replaces a lost certificate. Source bundles in Git are not
+re-signed; always install the generated copy.
+
+Before installation, close Open-in-Termius itself (Termius may stay open).
+The previous app is copied to
+`~/Library/Application Support/Open-in-Termius/backups/<timestamp>/`.
+Installation preserves the app directory so Finder toolbar aliases retain their
+target, and restores the backup if copying or verification fails. Older build
+outputs and backups are retained.
+
+The first use of the private key may show a `codesign` Keychain dialog. Choose
+**Always Allow** for this signing key, rather than **Allow** for one operation.
+If a background build reports `errSecInternalComponent` without a visible
+dialog, run the command in your normal interactive terminal to complete that
+one-time authorization. Do not send your login password to chat or put it in a
+script. This key-access prompt is separate from the app's Automation and
+Accessibility permissions.
+
+Switching from the old ad-hoc identity to this certificate can require one final
+app authorization under System Settings → Privacy & Security → Accessibility
+and Automation. On this Mac's macOS 27, the Accessibility permission is listed
+under **Device Control and Data Access**. If the old entry is enabled but the
+new app still reports "not allowed assistive access", remove that app's old entry
+and add `/Applications/Open-in-Termius.app` once to record its new identity.
+After that, updates signed by the same identity should retain
+those permissions. The build never edits or resets macOS's permission database.
+This is a local-use signature, not Developer ID signing or notarization.
+
+Keep the certificate **and its private key** in the login keychain. For recovery,
+export that identity from Keychain Access as a password-protected `.p12` and keep
+it in a secure backup outside Git, along with the signing configuration. The
+public `.pem` file alone cannot restore signing ability. Recreating a certificate
+with the same name does not preserve its identity; losing/replacing it, resetting
+privacy permissions, or changing Bundle ID can require authorization again.
+
+To test two different workflow builds against the same real signing identity,
+including ZIP round-trip verification and tamper rejection, run:
+
+```bash
+OPEN_IN_TERMIUS_SIGNING_TESTS=1 python3 -m unittest discover -s tests -v
+```
+
+This opt-in check signs temporary copies without launching Finder or Termius.
+It verifies code identity compatibility; actual permission retention must also
+be checked by updating an already-authorized installed app and using its Finder
+toolbar button again. See Apple's [code identity explanation](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
+### Local signing acceptance (2026-10-15)
+
+On this Mac (macOS 27), all 19 checks passed with real signing enabled, including
+ZIP extraction, changed-build identity compatibility, and tamper rejection.
+After the one-time Keychain authorization and replacement of the old
+Accessibility entry, the Finder toolbar opened the expected directory in
+Termius. A workflow build with a different code hash was then installed using
+the same certificate and requirement; the toolbar still worked without another
+permission prompt. Restoring the production build passed the same live check.
+The installed workflow matches the repository source, and previous installations
+are retained in the backup directory. This confirms the update path on this Mac;
+it does not cover a replaced certificate or reset system permissions.
 
 ### Local acceptance (2026-10-14)
 
